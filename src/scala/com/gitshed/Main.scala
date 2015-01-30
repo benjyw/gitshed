@@ -2,53 +2,59 @@ package com.gitshed
 
 import java.io.File
 
+import scala.io.Source
+
 import com.madgag.git._
-import com.madgag.git.bfg.cli.CLIConfig
-import com.madgag.git.bfg.GitUtil.{tweakStaticJGitConfig, hasBeenProcessedByBFGBefore}
-import com.madgag.git.bfg.cleaner.{ObjectIdCleaner, RepoRewriter}
+import com.madgag.git.bfg.cleaner.ObjectIdCleaner
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.eclipse.jgit.internal.storage.file.FileRepository
 import com.madgag.git.bfg.cleaner.protection.ProtectedObjectCensus
 
 
+object Config {
+  val defaultBinaryFileSuffixes = Set(
+    // Image files.
+    ".png", ".jpg", ".jpeg", ".gif", ".ico", ".tif", ".tiff", ".tga", ".bmp", ".pdf", ".ps", ".eps", ".raw",
+
+    // Binary code and executables.
+    ".pex", ".exe", ".class", ".o", ".so", ".pyc",
+
+    // Archive files.
+    ".jar", ".war", ".egg", ".zip", ".tar", ".gz", ".bz2",
+
+    // Data files.
+    ".bson", ".bin", ".dat"
+  )
+
+  // Read the list of suffixes that identify binary files, from a file (one per line).
+  def readBinaryFileSuffixes(file: File): Set[String] = (Source.fromFile(file).getLines() map { _.trim() }).toSet
+
+  def getConfig(args: Seq[String]): Option[Config] = {
+    val parser = new scopt.OptionParser[Config]("gitshed-manage-history") {
+      head("gitshed-manage-history", "0.1")
+      opt[File]("repo-location").text("Act on the repo at this path.").action {
+        (x, c) => c.copy(repoLocation = x)
+      }
+      opt[File]("binary-suffix-file").text("Path to file containing suffixes that identify binary files (one per line)").action {
+        (x, c) => c.copy(binaryFileSuffixes=readBinaryFileSuffixes(x))
+      }
+      opt[Int]("other-binary-file-size-limit").text("The maximum allowed size of any file detected by git as binary, regardless of suffix").action {
+        (x, c) => c.copy(otherBinaryTypeSizeLimitBytes=x)
+      }
+    }
+
+    parser.parse(args, Config())
+  }
+}
+
+case class Config(repoLocation: File=new File(System.getProperty("user.dir")),
+                  binaryFileSuffixes: Set[String]=Config.defaultBinaryFileSuffixes,
+                  otherBinaryTypeSizeLimitBytes: Int=8000)
+
+
 object Main extends App {
-  val repoLocation = new File("/tmp/rogue2") //new File(System.getProperty("user.dir"))
-  val gitdir = resolveGitDirFor(repoLocation)
-  val repo = FileRepositoryBuilder.create(gitdir.get).asInstanceOf[FileRepository]
-  val objectIdCleanerConfig = ObjectIdCleaner.Config(ProtectedObjectCensus(Set("HEAD"))(repo))
-  BlobSymlinkingRepoRewriter.rewrite(repo, objectIdCleanerConfig)
-
-//  if (args.isEmpty) {
-//    CLIConfig.parser.showUsage
-//  } else {
-//    CLIConfig.parser.parse(args, CLIConfig()) map {
-//      config =>
-//        tweakStaticJGitConfig(config.massiveNonFileObjects)
-//        if (config.gitdir.isEmpty) {
-//          CLIConfig.parser.showUsage
-//          Console.err.println("Aborting : " + config.repoLocation + " is not a valid Git repository.\n")
-//        } else {
-//          implicit val repo = config.repo
-//
-//          println("\nUsing repo : " + repo.getDirectory.getAbsolutePath + "\n")
-//
-//          // do this before implicitly initiating big-blob search
-//          if (hasBeenProcessedByBFGBefore(repo)) {
-//            println("\nThis repo has been processed by The BFG before! Will prune repo before proceeding - to avoid unnecessary cleaning work on unused objects...")
-//            repo.git.gc.call()
-//            println("Completed prune of old objects - will now proceed with the main job!\n")
-//          }
-//
-//          if (config.definesNoWork) {
-//            Console.err.println("Please specify tasks for The BFG :")
-//            CLIConfig.parser.showUsage
-//          } else {
-//            println("Found " + config.objectProtection.fixedObjectIds.size + " objects to protect")
-//
-//            RepoRewriter.rewrite(repo, config.objectIdCleanerConfig)
-//          }
-//        }
-//    }
-//  }
-
+  Config.getConfig(args) match {
+    case Some(config) => BlobSymlinkingRepoRewriter.rewrite(config)
+    case None => System.exit(1)  // Error will have been shown.
+  }
 }

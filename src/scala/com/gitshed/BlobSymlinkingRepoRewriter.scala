@@ -10,12 +10,20 @@ import com.madgag.git._
 import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.revwalk.{RevWalk, RevCommit}
 import com.madgag.git.bfg.cleaner.{CLIReporter, Reporter, ObjectIdCleaner}
+import org.eclipse.jgit.storage.file.FileRepositoryBuilder
+import org.eclipse.jgit.internal.storage.file.FileRepository
+import com.madgag.git.bfg.cleaner.protection.ProtectedObjectCensus
 
 
+// Copied and modified from com.madgag.git.bfg.cleaner.RepoRewriter.
 object BlobSymlinkingRepoRewriter {
 
-  def rewrite(repo: org.eclipse.jgit.lib.Repository, objectIdCleanerConfig: ObjectIdCleaner.Config): Map[ObjectId, ObjectId] = {
+  def rewrite(config: Config): Map[ObjectId, ObjectId] = {
+    val gitdir = resolveGitDirFor(config.repoLocation)
+    val repo = FileRepositoryBuilder.create(gitdir.get).asInstanceOf[FileRepository]
     assert(!repo.getAllRefs.isEmpty, "Can't find any refs in repo at " + repo.getDirectory.getAbsolutePath)
+
+    val objectIdCleanerConfig = ObjectIdCleaner.Config(ProtectedObjectCensus(Set("HEAD"))(repo))
 
     implicit val refDatabase = repo.getRefDatabase
 
@@ -40,7 +48,7 @@ object BlobSymlinkingRepoRewriter {
 
     reporter.reportObjectProtection(objectIdCleanerConfig)(repo.getObjectDatabase, revWalk)
 
-    val objectIdCleaner = new BlobSymlinkingObjectIdCleaner("/tmp/gitshed/", objectIdCleanerConfig, repo.getObjectDatabase, revWalk)
+    val objectIdCleaner = new BlobSymlinkingObjectIdCleaner(config, objectIdCleanerConfig, repo.getObjectDatabase, revWalk)
 
     val commits = revWalk.toList
 
@@ -68,7 +76,7 @@ object BlobSymlinkingRepoRewriter {
       ) yield new ReceiveCommand(oldId, newId, ref.getName)
 
       if (refUpdateCommands.isEmpty) {
-        println("\nBFG aborting: No refs to update - no dirty commits found??\n")
+        println("\nAborting: No refs to update - no dirty commits found??\n")
       } else {
         reporter.reportRefUpdateStart(refUpdateCommands)
 
