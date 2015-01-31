@@ -1,18 +1,19 @@
 package com.gitshed
 
+import scala.collection.convert.wrapAll._
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
+
+import com.madgag.git._
+import com.madgag.git.bfg.Timing
+import com.madgag.git.bfg.cleaner._
+import com.madgag.git.bfg.cleaner.protection.ProtectedObjectCensus
 import org.eclipse.jgit.transport.ReceiveCommand
 import org.eclipse.jgit.revwalk.RevSort._
-import com.madgag.git.bfg.Timing
-import scala.concurrent.Future
-import concurrent.ExecutionContext.Implicits.global
-import scala.collection.convert.wrapAll._
-import com.madgag.git._
 import org.eclipse.jgit.lib.ObjectId
 import org.eclipse.jgit.revwalk.{RevWalk, RevCommit}
-import com.madgag.git.bfg.cleaner.{CLIReporter, Reporter, ObjectIdCleaner}
 import org.eclipse.jgit.storage.file.FileRepositoryBuilder
 import org.eclipse.jgit.internal.storage.file.FileRepository
-import com.madgag.git.bfg.cleaner.protection.ProtectedObjectCensus
 
 
 // Copied and modified from com.madgag.git.bfg.cleaner.RepoRewriter.
@@ -20,10 +21,19 @@ object BlobSymlinkingRepoRewriter {
 
   def rewrite(config: Config): Map[ObjectId, ObjectId] = {
     val gitdir = resolveGitDirFor(config.repoLocation)
+    assert(gitdir.isDefined, "Not a git repo " + config.repoLocation)
     val repo = FileRepositoryBuilder.create(gitdir.get).asInstanceOf[FileRepository]
     assert(!repo.getAllRefs.isEmpty, "Can't find any refs in repo at " + repo.getDirectory.getAbsolutePath)
 
-    val objectIdCleanerConfig = ObjectIdCleaner.Config(ProtectedObjectCensus(Set("HEAD"))(repo))
+    val protectedObjectCensus = ProtectedObjectCensus(Set("HEAD"))(repo)
+    // Make the following changes to commit messages:
+    //   - Rewrite object ids in the message text.
+    //   - Add a footer specifying the commit's old id, for future reference.
+    val commitNodeCleaners = new CommitMessageObjectIdsUpdater(ObjectIdSubstitutor.OldIdsPublic) :: FormerCommitFooter :: Nil
+    val objectIdCleanerConfig = ObjectIdCleaner.Config(
+      protectedObjectCensus=protectedObjectCensus,
+      commitNodeCleaners=commitNodeCleaners
+    )
 
     implicit val refDatabase = repo.getRefDatabase
 

@@ -1,14 +1,11 @@
 package com.gitshed
 
 import java.io.File
-
 import scala.io.Source
 
-import com.madgag.git._
-import com.madgag.git.bfg.cleaner.ObjectIdCleaner
-import org.eclipse.jgit.storage.file.FileRepositoryBuilder
-import org.eclipse.jgit.internal.storage.file.FileRepository
-import com.madgag.git.bfg.cleaner.protection.ProtectedObjectCensus
+
+// An entry point for an application to rewrite git history, replacing binary files with gitshed symlinks.
+// Binary files are detected either by file suffix or by content.
 
 
 object Config {
@@ -32,7 +29,7 @@ object Config {
   def getConfig(args: Seq[String]): Option[Config] = {
     val parser = new scopt.OptionParser[Config]("gitshed-manage-history") {
       head("gitshed-manage-history", "0.1")
-      opt[File]("repo-location").text("Act on the repo at this path.").action {
+      arg[File]("repo-location").text("Act on the repo at this path.").action {
         (x, c) => c.copy(repoLocation = x)
       }
       opt[File]("binary-suffix-file").text("Path to file containing suffixes that identify binary files (one per line)").action {

@@ -2,23 +2,16 @@ package com.gitshed
 
 import java.io.{File, FileOutputStream}
 
-import org.eclipse.jgit.lib.{ObjectChecker, FileMode, ObjectDatabase, ObjectId}
-import com.madgag.git.bfg.model.{FileName, Tree}
-import com.madgag.git.bfg.cleaner._
-import com.madgag.git.bfg.{MemoUtil, Memo, MemoFunc}
-import org.eclipse.jgit.revwalk.RevWalk
-import org.eclipse.jgit.lib.Constants._
 import com.madgag.collection.concurrent.ConcurrentMultiMap
-import com.madgag.git.bfg.cleaner.protection.ProtectedObjectCensus
 import com.madgag.git.ThreadLocalObjectDatabaseResources
+import com.madgag.git.bfg.{MemoUtil, Memo, MemoFunc}
+import com.madgag.git.bfg.cleaner._
+import com.madgag.git.bfg.model.{FileName, Tree}
+import org.eclipse.jgit.lib.Constants._
+import org.eclipse.jgit.lib.{ObjectChecker, FileMode, ObjectDatabase, ObjectId}
+import org.eclipse.jgit.revwalk.RevWalk
 import org.eclipse.jgit.util.IO
 
-
-object BlobSymlinkingObjectIdCleaner {
-  def makeConfig(protectedObjectCensus: ProtectedObjectCensus) = {
-    ObjectIdCleaner.Config(protectedObjectCensus)
-  }
-}
 
 class BlobSymlinkingObjectIdCleaner(config: Config, objectIdCleanerConfig: ObjectIdCleaner.Config,
                                     objectDB: ObjectDatabase, revWalk: RevWalk)
@@ -26,6 +19,7 @@ class BlobSymlinkingObjectIdCleaner(config: Config, objectIdCleanerConfig: Objec
 
   val blobSymlinker = new BlobSymlinker(config, threadLocalResources, changesByFilename)
 
+  // Override the default behavior and force it to use our BlobSymlinker functionality instead.
   override val cleanTree: MemoFunc[ObjectId, ObjectId] = treeMemo { originalObjectId =>
     blobSymlinker.handleEntry((Nil, new Tree.Entry(null, FileMode.TREE, originalObjectId)))._2.objectId
   }
@@ -34,8 +28,10 @@ class BlobSymlinkingObjectIdCleaner(config: Config, objectIdCleanerConfig: Objec
 class BlobSymlinker(config: Config,
                     threadLocalResources: ThreadLocalObjectDatabaseResources,
                     changeRegistry: ConcurrentMultiMap[FileName, (ObjectId, ObjectId)]) {
+
+  // A tree entry and its (reversed) path from the tree root.
   type PathAndEntry = (List[FileName], Tree.Entry)
-  val gitshedRoot = new File(config.repoLocation, ".gitshed/files")
+
   val objectChecker = new ObjectChecker()
   val pathAndEntryMemo: Memo[PathAndEntry, PathAndEntry] = MemoUtil.concurrentCleanerMemo[PathAndEntry]()
 
@@ -90,7 +86,7 @@ class BlobSymlinker(config: Config,
   }
 
   def extractBlobContent(objectId: ObjectId, relpath: String) {
-    val file = new File(gitshedRoot, relpath)
+    val file = new File(config.repoLocation, relpath)
     file.getParentFile.mkdirs()
     val ostr = new FileOutputStream(file)
     threadLocalResources.reader().open(objectId).copyTo(ostr)
@@ -109,10 +105,12 @@ class BlobSymlinker(config: Config,
   def hasBinaryContent(objectId: ObjectId) = {
     val buf = new Array[Byte](config.otherBinaryTypeSizeLimitBytes)
     val loader = threadLocalResources.reader().open(objectId)
-    val size = loader.getSize
+    val size = Math.min(buf.length, loader.getSize.toInt)
     val in = loader.openStream()
-    IO.readFully(in, buf, 0, Math.min(buf.length, size).toInt)
+    IO.readFully(in, buf, 0, size)
     in.close()
-    buf.exists(_ == 0.toByte)
+    var i = 0
+    while (i < size && buf(i) != 0.toByte) i += 1
+    i < size
   }
 }
