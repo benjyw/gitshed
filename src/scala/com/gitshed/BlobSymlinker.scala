@@ -23,6 +23,8 @@ class BlobSymlinkingObjectIdCleaner(config: Config, objectIdCleanerConfig: Objec
   override val cleanTree: MemoFunc[ObjectId, ObjectId] = treeMemo { originalObjectId =>
     blobSymlinker.handleEntry((Nil, new Tree.Entry(null, FileMode.TREE, originalObjectId)))._2.objectId
   }
+
+  override def stats() = super.stats() + ("pathAndEntry" -> blobSymlinker.handleEntry.stats())
 }
 
 class BlobSymlinker(config: Config,
@@ -93,15 +95,22 @@ class BlobSymlinker(config: Config,
     ostr.close()
   }
 
-  def isBinary(entry: Tree.Entry) = hasBinarySuffix(entry.name.string) || hasBinaryContent(entry.objectId)
+  def isBinary(entry: Tree.Entry) = !hasTextSuffix(entry.name.string) &&
+    (hasBinarySuffix(entry.name.string) || hasBinaryContent(entry.objectId))
 
-  def hasBinarySuffix(name: String) = {
+  def hasTextSuffix(name: String) = hasSuffix(name, config.textFileSuffixes)
+
+  def hasBinarySuffix(name: String) = hasSuffix(name, config.binaryFileSuffixes)
+
+  def hasSuffix(name: String, suffixSet: Set[String]) = {
     val p = name.lastIndexOf('.')
-    (p >= 0) && config.binaryFileSuffixes.contains(name.substring(p))
+    ((p >= 0) && suffixSet.contains(name.substring(p))) || suffixSet.contains(name)
   }
 
   // Detects if a blob is binary (vs. text) the same way git does: looking for a nul byte in some prefix of
   // the content.  This isn't foolproof, but this plus looking at file suffixes gets us close enough.
+  // This is somewhat expensive, which is another reason why we first filter out anything we can identify
+  // as text or binary by file suffix.
   def hasBinaryContent(objectId: ObjectId) = {
     val buf = new Array[Byte](config.otherBinaryTypeSizeLimitBytes)
     val loader = threadLocalResources.reader().open(objectId)

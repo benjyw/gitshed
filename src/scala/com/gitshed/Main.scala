@@ -9,6 +9,15 @@ import scala.io.Source
 
 
 object Config {
+  val defaultTextFileSuffixes = Set(
+    // Source code.
+    ".java", ".scala", ".py", ".rb", ".js", ".cc", ".c", ".cpp", ".h", ".php", ".sh", ".thrift", ".proto",
+    ".html", ".css", ".soy", ".less", ".sql", "BUILD", "Makefile",
+
+    // Other.
+    ".txt", ".json", ".xml", ".md", "LICENSE"
+  )
+
   val defaultBinaryFileSuffixes = Set(
     // Image files.
     ".png", ".jpg", ".jpeg", ".gif", ".ico", ".tif", ".tiff", ".tga", ".bmp", ".pdf", ".ps", ".eps", ".raw",
@@ -23,8 +32,8 @@ object Config {
     ".bson", ".bin", ".dat"
   )
 
-  // Read the list of suffixes that identify binary files, from a file (one per line).
-  def readBinaryFileSuffixes(file: File): Set[String] = (Source.fromFile(file).getLines() map { _.trim() }).toSet
+  // Read a list of suffixes from a file (one per line).
+  def readFileSuffixes(file: File): Set[String] = (Source.fromFile(file).getLines() map { _.trim() }).toSet
 
   def getConfig(args: Seq[String]): Option[Config] = {
     val parser = new scopt.OptionParser[Config]("gitshed-manage-history") {
@@ -32,8 +41,11 @@ object Config {
       arg[File]("repo-location").text("Act on the repo at this path.").action {
         (x, c) => c.copy(repoLocation = x)
       }
+      opt[File]("text-suffix-file").text("Path to file containing suffixes that identify text files (one per line)").action {
+        (x, c) => c.copy(textFileSuffixes=readFileSuffixes(x))
+      }
       opt[File]("binary-suffix-file").text("Path to file containing suffixes that identify binary files (one per line)").action {
-        (x, c) => c.copy(binaryFileSuffixes=readBinaryFileSuffixes(x))
+        (x, c) => c.copy(binaryFileSuffixes=readFileSuffixes(x))
       }
       opt[Int]("other-binary-file-size-limit").text("The maximum allowed size of any file detected by git as binary, regardless of suffix").action {
         (x, c) => c.copy(otherBinaryTypeSizeLimitBytes=x)
@@ -45,6 +57,7 @@ object Config {
 }
 
 case class Config(repoLocation: File=new File(System.getProperty("user.dir")),
+                  textFileSuffixes: Set[String]=Config.defaultTextFileSuffixes,
                   binaryFileSuffixes: Set[String]=Config.defaultBinaryFileSuffixes,
                   otherBinaryTypeSizeLimitBytes: Int=8000)
 
