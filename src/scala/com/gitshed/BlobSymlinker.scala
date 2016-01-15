@@ -1,6 +1,6 @@
 package com.gitshed
 
-import java.io.{File, FileOutputStream}
+import java.io.{BufferedWriter, File, FileOutputStream, FileWriter}
 
 import com.madgag.collection.concurrent.ConcurrentMultiMap
 import com.madgag.git.ThreadLocalObjectDatabaseResources
@@ -30,9 +30,10 @@ class BlobSymlinkingObjectIdCleaner(config: Config, objectIdCleanerConfig: Objec
 class BlobSymlinker(config: Config,
                     threadLocalResources: ThreadLocalObjectDatabaseResources,
                     changeRegistry: ConcurrentMultiMap[FileName, (ObjectId, ObjectId)]) {
-
   // A tree entry and its (reversed) path from the tree root.
   type PathAndEntry = (List[FileName], Tree.Entry)
+
+  val blobLog = new BufferedWriter(new FileWriter(new File("/tmp/bloblog")))
 
   val objectChecker = new ObjectChecker()
   val pathAndEntryMemo: Memo[PathAndEntry, PathAndEntry] = MemoUtil.concurrentCleanerMemo[PathAndEntry]()
@@ -66,8 +67,21 @@ class BlobSymlinker(config: Config,
   def handleBlob(pathAndEntry: PathAndEntry): PathAndEntry = {
     val path = pathAndEntry._1
     val originalEntry = pathAndEntry._2
-    if ((originalEntry.fileMode == FileMode.REGULAR_FILE || originalEntry.fileMode == FileMode.EXECUTABLE_FILE) &&
-      isBinary(originalEntry)) {
+    val isBin = isBinary(originalEntry)
+
+    val loader = threadLocalResources.reader().open(originalEntry.objectId)
+    val size = loader.getSize.toString
+    blobLog.synchronized {
+      if (isBin) blobLog.write("B\t") else blobLog.write("T\t")
+      blobLog.write(size)
+      blobLog.write("\t")
+      blobLog.write(originalEntry.objectId.name)
+      blobLog.write("\t")
+      blobLog.write((path.toArray.reverse map (_.string)).mkString("/"))
+      blobLog.write("\n")
+    }
+
+    if ((originalEntry.fileMode == FileMode.REGULAR_FILE || originalEntry.fileMode == FileMode.EXECUTABLE_FILE) && isBin) {
       val fileName = path.head.string
       val mode = originalEntry.fileMode match {
         case FileMode.REGULAR_FILE => "00444"

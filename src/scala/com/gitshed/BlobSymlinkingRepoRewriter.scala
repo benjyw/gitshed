@@ -106,6 +106,7 @@ object BlobSymlinkingRepoRewriter {
     }
 
     clean(commits)
+    objectIdCleaner.blobSymlinker.blobLog.close()
     updateRefsWithCleanedIds()
     objectIdCleaner.stats()
     objectIdCleaner.cleanedObjectMap()
